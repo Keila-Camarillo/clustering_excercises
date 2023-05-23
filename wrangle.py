@@ -6,6 +6,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 import sklearn.preprocessing
 
 def get_data(directory=os.getcwd(), filename="zillow.csv"):
@@ -62,6 +63,41 @@ def get_data(directory=os.getcwd(), filename="zillow.csv"):
         #want to save to csv
         df.to_csv(filename)
         return df
+
+import os
+import pandas as pd
+import env  # Assuming you have the env module available for retrieving the database URL
+
+def get_data_mysql(filename, sql_query, directory=os.getcwd()):
+    """
+    This function will:
+    - Check local directory for csv file
+        - Return if exists
+    - If csv doesn't exist:
+        - Create a df of the SQL_query
+        - Write df to csv
+    - Output zillow df
+
+    Parameters:
+    filename (str): Name of the CSV file.
+    sql_query (str): SQL query for fetching data from the database.
+    directory (str, optional): Directory path where the CSV file is located. Defaults to the current working directory.
+
+    Returns:
+    pandas.DataFrame: The DataFrame containing the data from the CSV file or fetched from the database.
+    """
+    if os.path.exists(os.path.join(directory, filename)):
+        df = pd.read_csv(os.path.join(directory, filename))
+        return df
+    else:
+        url = env.get_db_url(filename)  # Assuming the env module provides the database URL
+
+        df = pd.read_sql(sql_query, url)
+
+        # Want to save to CSV
+        df.to_csv(os.path.join(directory, filename))
+        return df
+
 
 
 def remove_columns(df, cols_to_remove):
@@ -182,7 +218,7 @@ def get_numeric_cols(df):
     
     return num_cols
 
-def summarize(df):
+def summarize(df, id):
     '''
     summarize will take in a single argument (a pandas dataframe) 
     and output to console various statistics on said dataframe, including:
@@ -216,12 +252,12 @@ Dataframe Description:
 
 
 nulls in dataframe by column: 
-{nulls_by_col(df)}
+{nulls_by_col(df, id)}
 =====================================================
 
 
 nulls in dataframe by row: 
-{nulls_by_row(df)}
+{nulls_by_row(df, id)}
 =====================================================
     
     
@@ -328,3 +364,62 @@ def mm_scale(x_train, x_validate, x_test):
     x_train_scaled, x_validate_scaled, x_test_scaled  = rename_col(x_train_scaled, col_name), rename_col(x_validate_scaled, col_name), rename_col(x_test_scaled, col_name)
     
     return x_train_scaled, x_validate_scaled, x_test_scaled
+
+def encoding(df, cols, drop_first=True):
+    '''
+    Take in df and list of columns
+    add encoded columns derived from columns in list to the df
+    '''
+    for col in cols:
+
+        dummies = pd.get_dummies(df[f'{col}'], drop_first=drop_first) # get dummy columns
+
+        df = pd.concat([df, dummies], axis=1) # add dummy columns to df
+        
+    return df
+
+def split_data_xy(df, target):
+    '''
+    This function take in a dataframe performs a train, validate, test split
+    Returns train, validate, test, X_train, y_train, X_validate, y_validate, X_test, y_test
+    and prints out the shape of train, validate, test
+    '''
+    #create train_validate and test datasets
+    train, test = train_test_split(df, train_size = 0.8, random_state = 123)
+    #create train and validate datasets
+    train, validate = train_test_split(train, train_size = 0.7, random_state = 123)
+
+    #Split into X and y
+    X_train = train.drop(columns=[target])
+    y_train = train[target]
+
+    X_validate = validate.drop(columns=[target])
+    y_validate = validate[target]
+
+    X_test = test.drop(columns=[target])
+    y_test = test[target]
+
+    # Have function print datasets shape
+    print(f'train -> {train.shape}')
+    print(f'validate -> {validate.shape}')
+    print(f'test -> {test.shape}')
+   
+    return train, validate, test, X_train, y_train, X_validate, y_validate, X_test, y_test
+
+def clean_scale_mall(df, target):
+    df = df.drop(columns=['Unnamed: 0'])
+    disc_df = df.select_dtypes(include=object)
+    #get dummies
+    dummy_df = pd.get_dummies(df)
+    train_encoded = encoding(df, disc_df , drop_first=True)
+    # split
+    train, validate, test, x_train, y_train, x_validate, y_validate, x_test, y_test = split_data_xy(train_encoded, target)
+    # scales
+    mms = MinMaxScaler()
+
+    #fit the scaler on the desired columns
+    x_train[['age', 'annual_income']] = mms.fit_transform(x_train[['age','annual_income']])
+    x_validate[['age', 'annual_income']] = mms.fit_transform(x_validate[['age','annual_income']])
+    x_test[['age', 'annual_income']] = mms.fit_transform(x_test[['age','annual_income']])
+    #take a look
+    return train, validate, test, x_train, y_train, x_validate, y_validate, x_test, y_test
